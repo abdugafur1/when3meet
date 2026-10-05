@@ -1,13 +1,374 @@
 
-@theme {
-  --animate-logo-spin: logo-spin infinite 20s linear;
+:root {
+  --page-bg: #f5f5f3;
+  --ink: #111111;
+  --muted: #4a4a4a;
+  --line: #363636;
+  --panel: #f0f0f0;
+  --input-bg: #f5f5f5;
+  --green: #69b86b;
+  --green-soft: #b2d7a7;
+  --gray: #c7c7c7;
+  --gray-deep: #8c8c8c;
+  --link: #2b63a3;
+}
 
-  @keyframes logo-spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--page-bg);
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: var(--page-bg);
+}
+
+.topbar {
+  height: 36px;
+  background: #0c0c0c;
+  border-bottom: 1px solid #000;
+}
+
+.topbar__nav {
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 26px;
+  padding: 0 18px;
+}
+
+.topbar__nav a {
+  color: #f0f0f0;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.page-content {
+  width: min(1200px, calc(100vw - 54px));
+  margin: 0 auto;
+  padding-top: 18px;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 3vw, 4rem);
+  font-weight: 700;
+  letter-spacing: -0.06em;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.event-intro {
+  margin-top: 14px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 1.03rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.event-intro a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.timezone-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  margin-bottom: 12px;
+  font-size: 1rem;
+}
+
+.timezone-row label {
+  font-weight: 600;
+}
+
+.timezone-row select {
+  min-width: 180px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid #777;
+  border-radius: 2px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(540px, 1.35fr);
+  column-gap: 56px;
+  margin-top: 10px;
+}
+
+.panel {
+  min-width: 0;
+}
+
+.panel h2 {
+  margin: 0 0 18px;
+  font-size: clamp(1.3rem, 1.6vw, 2.1rem);
+  font-weight: 700;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.panel--signin {
+  padding-top: 12px;
+}
+
+.signin-form {
+  width: min(100%, 440px);
+  display: grid;
+  gap: 8px;
+}
+
+.signin-form label {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.signin-form input {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #9d9d9d;
+  background: var(--input-bg);
+  border-radius: 2px;
+}
+
+.signin-form button {
+  width: 110px;
+  height: 32px;
+  margin-top: 10px;
+  border: 1px solid #7d7d7d;
+  background: #dcdcdc;
+  border-radius: 3px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.signin-help {
+  margin: 22px 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.95rem;
+  line-height: 1.8;
+  color: #2d2d2d;
+}
+
+.signin-help li {
+  list-style: disc;
+}
+
+.panel--availability {
+  padding-top: 12px;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 20px;
+  margin-bottom: 8px;
+  font-size: 0.96rem;
+  color: var(--ink);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #212121;
+}
+
+.legend-swatch--empty {
+  background: var(--gray);
+}
+
+.legend-swatch--full {
+  background: var(--green);
+}
+
+.legend-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.96rem;
+}
+
+.schedule-grid {
+  width: 100%;
+  max-width: 680px;
+  border: 1px solid var(--line);
+  background: #f1f1f1;
+}
+
+.schedule-grid__header,
+.schedule-grid__row {
+  display: grid;
+  grid-template-columns: 68px repeat(8, minmax(20px, 1fr));
+}
+
+.schedule-grid__header {
+  min-height: 28px;
+}
+
+.schedule-grid__header--secondary {
+  border-top: 1px solid var(--line);
+}
+
+.schedule-grid__corner,
+.schedule-grid__date,
+.schedule-grid__day,
+.schedule-grid__time,
+.schedule-grid__cell {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.schedule-grid__corner {
+  border-right: 1px solid var(--line);
+  background: #ededed;
+}
+
+.schedule-grid__date,
+.schedule-grid__day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  background: #f5f5f5;
+}
+
+.schedule-grid__day {
+  font-size: 0.82rem;
+}
+
+.schedule-grid__time {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  background: #f5f5f5;
+  font-size: 0.8rem;
+}
+
+.schedule-grid__cell {
+  min-height: 23px;
+  background: #f5f5f5;
+}
+
+.schedule-grid__cell--unavailable {
+  background: var(--gray);
+}
+
+.schedule-grid__cell--available {
+  background: var(--green);
+}
+
+.schedule-grid__cell--empty {
+  background: #f5f5f5;
+}
+
+.late-night-grid {
+  width: 100%;
+  max-width: 680px;
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 68px repeat(8, minmax(20px, 1fr));
+}
+
+.late-night-grid__row {
+  display: contents;
+}
+
+.late-night-grid__cell {
+  min-height: 23px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #f5f5f5;
+}
+
+.late-night-grid__cell--available {
+  background: var(--green);
+}
+
+.late-night-grid__cell--unavailable {
+  background: var(--gray);
+}
+
+.late-night-grid__time {
+  grid-column: 1;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  background: #f5f5f5;
+}
+
+.late-night-grid__time--second {
+  grid-column: 1;
+}
+
+@media (max-width: 980px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-content {
+    width: min(100vw - 24px, 760px);
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar__nav {
+    gap: 10px;
+    font-size: 0.8rem;
+  }
+
+  .timezone-row {
+    flex-wrap: wrap;
+  }
+
+  .schedule-grid__header,
+  .schedule-grid__row,
+  .late-night-grid {
+    grid-template-columns: 52px repeat(8, minmax(18px, 1fr));
   }
 }
