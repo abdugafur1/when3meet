@@ -1,144 +1,383 @@
+import { useEffect, useState } from 'react';
+import type { FormEvent, PointerEvent } from 'react';
 import './App.css';
+import {
+  createMeeting,
+  listenToMeeting,
+  listenToUserDashboard,
+  saveAvailability,
+  type Meeting,
+  type UserDashboard,
+} from './services/meetingService';
+import {
+  listenToAuth,
+  register,
+  signIn,
+  signOut,
+  type AppUser,
+} from './services/authService';
 
-const dateHeaders = ['Oct 4', 'Oct 5', 'Oct 6', 'Oct 7', 'Oct 8', 'Oct 9', 'Oct 10', 'Oct 11'];
-const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const timeLabels = ['12:00 AM', '1:00 AM', '2:00 AM', '3:00 AM', '4:00 AM', '5:00 AM', '6:00 AM', '7:00 AM'];
+const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const hours = Array.from({ length: 16 }, (_, index) => index + 7);
 
-const availabilityRows: number[][] = [
-  [0, 0, 1, 1, 1, 0, 0, 0],
-  [0, 1, 1, 1, 1, 0, 0, 0],
-  [0, 1, 1, 1, 1, 0, 0, 0],
-  [0, 1, 1, 1, 1, 0, 0, 0],
-  [0, 1, 1, 1, 1, 0, 0, 0],
-  [0, 0, 0, 1, 1, 1, 0, 0],
-  [0, 0, 0, 1, 1, 1, 0, 0],
-  [0, 0, 0, 0, 1, 1, 0, 0],
-];
+const formatHour = (hour: number) => {
+  const suffix = hour < 12 ? 'AM' : 'PM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:00 ${suffix}`;
+};
 
-const lateNightRows: number[][] = [
-  [1, 0, 0, 0, 0, 0, 0, 0],
-  [1, 0, 0, 0, 0, 0, 0, 0],
-];
+const App = () => {
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [dashboard, setDashboard] = useState<UserDashboard>({ meetings: {}, savedSlots: [] });
+  const [meetingId, setMeetingId] = useState(
+    () => new URLSearchParams(window.location.search).get('meeting'),
+  );
+  const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
+  const [name, setName] = useState('');
+  const [title, setTitle] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
 
-const App = () => (
-  <div className="app-shell">
-    <header className="topbar" aria-label="Main navigation">
-      <nav className="topbar__nav">
-        <a href="#">About When2Meet</a>
-        <a href="#">Plan a New Event</a>
-      </nav>
-    </header>
+  useEffect(() => listenToAuth((nextUser) => {
+    setUser(nextUser);
+    setAuthReady(true);
+    setMeeting(null);
+    setDashboard({ meetings: {}, savedSlots: [] });
+    setSelectedSlots([]);
+    setName('');
+  }), []);
 
-    <main className="page-content">
-      <h1>When3meet</h1>
+  useEffect(() => {
+    const handlePopState = () => {
+      setMeeting(null);
+      setSelectedSlots([]);
+      setMeetingId(new URLSearchParams(window.location.search).get('meeting'));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
-      <div className="event-intro">
-        <span>To invite people to this event, you can</span>
-        <a href="#">email them</a>
-        <span>, send them a</span>
-        <a href="#"> Facebook message</a>
-        <span>, or just direct them to</span>
-        <a href="#"> https://www.when2meet.com/?379022816-Sx7of</a>
-      </div>
+  useEffect(() => {
+    if (!user) return;
+    let savedSlots: string[] = [];
+    let activeMeeting: Meeting | null = null;
+    const stopDashboard = listenToUserDashboard(user.uid, (nextDashboard) => {
+      savedSlots = nextDashboard.savedSlots;
+      setDashboard(nextDashboard);
+      if (activeMeeting && !activeMeeting.responses[user.uid]) {
+        setSelectedSlots(nextDashboard.savedSlots);
+      }
+    }, (message) => setError(message));
+    const stopMeeting = meetingId ? listenToMeeting(
+      meetingId,
+      (nextMeeting) => {
+        activeMeeting = nextMeeting;
+        setMeeting(nextMeeting);
+        if (nextMeeting) {
+          const response = nextMeeting.responses[user.uid];
+          setSelectedSlots(response ? Object.keys(response.slots) : savedSlots);
+        }
+      },
+      (message) => setError(message),
+    ) : undefined;
+    return () => {
+      stopDashboard();
+      stopMeeting?.();
+      activeMeeting = null;
+    };
+  }, [meetingId, user]);
 
-      <div className="timezone-row" aria-label="Timezone selector">
-        <label htmlFor="timezone">Your Time Zone:</label>
-        <select id="timezone" defaultValue="Asia/Tokyo">
-          <option value="America/New_York">America/New_York</option>
-          <option value="Asia/Tokyo">Asia/Tokyo</option>
-          <option value="UTC">UTC</option>
-        </select>
-      </div>
+  const navigateToMeeting = (id: string | null) => {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set('meeting', id);
+    else url.searchParams.delete('meeting');
+    window.history.pushState({}, '', url);
+    setMeeting(null);
+    setSelectedSlots([]);
+    setMeetingId(id);
+    setError('');
+    setNotice('');
+  };
 
-      <div className="content-grid">
-        <section className="panel panel--signin" aria-labelledby="signin-heading">
-          <h2 id="signin-heading">Sign In</h2>
+  const handleAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      if (isRegistering) await register(email, password);
+      else await signIn(email, password);
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unable to sign in.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
-          <div className="signin-form">
-            <label htmlFor="name">Your Name:</label>
-            <input id="name" type="text" />
+  const handleCreateMeeting = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      const id = await createMeeting(title, user);
+      setTitle('');
+      navigateToMeeting(id);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Unable to create the meeting.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
-            <label htmlFor="password">Password (optional):</label>
-            <input id="password" type="password" />
+  const toggleSlot = (slot: string) => {
+    setSelectedSlots((current) => current.includes(slot)
+      ? current.filter((value) => value !== slot)
+      : [...current, slot]);
+  };
 
-            <button type="button">Sign In</button>
-          </div>
+  const handleSlotPointerDown = (event: PointerEvent<HTMLButtonElement>, slot: string) => {
+    event.preventDefault();
+    setIsDrawing(true);
+    toggleSlot(slot);
+  };
 
-          <ul className="signin-help">
-            <li>Name/Password are only for this event.</li>
-            <li>New to this event? Make up a password.</li>
-            <li>Returning? Use the same name/password.</li>
-          </ul>
+  const handleSlotPointerEnter = (slot: string) => {
+    if (!isDrawing || selectedSlots.includes(slot)) return;
+    setSelectedSlots((current) => [...current, slot]);
+  };
+
+  const handleSaveAvailability = async () => {
+    if (!user || !meeting || !name.trim()) {
+      setError('Add your name before saving your availability.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await saveAvailability(meeting.id, user, name.trim(), selectedSlots);
+      setNotice('Availability saved. Your schedule is ready to reuse next time.');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save availability.');
+    } finally {
+      setBusy(false);
+      setIsDrawing(false);
+    }
+  };
+
+  if (!authReady) {
+    return <main className="loading-screen"><span className="brand-mark">w</span><p>Getting your schedule ready…</p></main>;
+  }
+
+  if (!user) {
+    return (
+      <main className="auth-layout">
+        <section className="auth-card">
+          <a className="brand" href="/" onClick={(event) => { event.preventDefault(); navigateToMeeting(null); }}>
+            <span className="brand-mark">w</span> when3meet
+          </a>
+          <p className="eyebrow">MAKE TIME FOR WHAT MATTERS</p>
+          <h1>{isRegistering ? 'Create your account' : 'Find a time together'}</h1>
+          <p className="auth-description">
+            Sign in to respond to a meeting, see everyone&apos;s availability, and keep your weekly schedule handy.
+          </p>
+          {error && <p className="message message--error" role="alert">{error}</p>}
+          <form className="form-stack" onSubmit={handleAuth}>
+            <label htmlFor="email">Email address</label>
+            <input id="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+            <label htmlFor="password">Password</label>
+            <input id="password" type="password" autoComplete={isRegistering ? 'new-password' : 'current-password'} minLength={6} required value={password} onChange={(event) => setPassword(event.target.value)} />
+            <button className="button button--primary button--wide" disabled={busy} type="submit">
+              {busy ? 'Please wait…' : isRegistering ? 'Create account' : 'Sign in'}
+            </button>
+          </form>
+          <button className="text-button auth-switch" onClick={() => { setIsRegistering(!isRegistering); setError(''); }} type="button">
+            {isRegistering ? 'Already have an account? Sign in' : 'New here? Create an account'}
+          </button>
+          {meetingId && <p className="invite-note">Your meeting invite will be waiting after you sign in.</p>}
         </section>
-
-        <section className="panel panel--availability" aria-labelledby="availability-heading">
-          <h2 id="availability-heading">Group&apos;s Availability</h2>
-
-          <div className="legend" aria-label="Availability legend">
-            <span className="legend-item">
-              <span className="legend-swatch legend-swatch--empty" />0/1 Available
-            </span>
-            <span className="legend-item">
-              <span className="legend-swatch legend-swatch--full" />1/1 Available
-            </span>
+        <aside className="auth-aside">
+          <div className="aside-orbit orbit-one" />
+          <div className="aside-orbit orbit-two" />
+          <div className="aside-copy">
+            <span className="eyebrow">BETTER PLANS START HERE</span>
+            <h2>Your team&apos;s next<br />“that works for me.”</h2>
+            <p>Pick the times that work. We&apos;ll find the overlap.</p>
           </div>
-
-          <p className="legend-note">Mouseover the Calendar to See Who Is Available</p>
-
-          <div className="schedule-grid" aria-label="Availability calendar">
-            <div className="schedule-grid__header">
-              <div className="schedule-grid__corner" />
-              {dateHeaders.map((date) => (
-                <div key={date} className="schedule-grid__date">
-                  {date}
-                </div>
-              ))}
-            </div>
-
-            <div className="schedule-grid__header schedule-grid__header--secondary">
-              <div className="schedule-grid__corner" />
-              {dayHeaders.map((day, index) => (
-                <div key={`${day}-${index}`} className="schedule-grid__day">
-                  {day}
-                </div>
-              ))}
-            </div>
-
-            {timeLabels.map((time, rowIndex) => (
-              <div key={time} className="schedule-grid__row">
-                <div className="schedule-grid__time">{time}</div>
-                {availabilityRows[rowIndex]?.map((value, cellIndex) => (
-                  <div
-                    key={`${time}-${cellIndex}`}
-                    className={`schedule-grid__cell schedule-grid__cell--${
-                      value === 1 ? 'available' : value === 0 ? 'unavailable' : 'empty'
-                    }`}
-                  />
-                ))}
-              </div>
+          <div className="mini-week" aria-hidden="true">
+            <div className="mini-week__head"><span>YOUR WEEK</span><span>✳</span></div>
+            {['MON', 'TUE', 'WED', 'THU', 'FRI'].map((day, index) => (
+              <div className="mini-week__row" key={day}><span>{day}</span><i className={`mini-week__slot mini-week__slot--${index}`} /><i /><i className={`mini-week__slot mini-week__slot--${index + 2}`} /><i /></div>
             ))}
+            <div className="mini-week__caption">A little overlap goes a long way.</div>
           </div>
+        </aside>
+      </main>
+    );
+  }
 
-          <div className="late-night-grid" aria-label="Late night availability">
-            {lateNightRows.map((row, rowIndex) => (
-              <div key={`late-${rowIndex}`} className="late-night-grid__row">
-                {row.map((value, cellIndex) => (
-                  <div
-                    key={`late-${rowIndex}-${cellIndex}`}
-                    className={`late-night-grid__cell late-night-grid__cell--${
-                      value === 1 ? 'available' : value === 0 ? 'unavailable' : 'empty'
-                    }`}
-                  />
-                ))}
+  return (
+    <div className="app-shell" onPointerUp={() => setIsDrawing(false)} onPointerLeave={() => setIsDrawing(false)}>
+      <header className="topbar">
+        <a className="brand" href="/" onClick={(event) => { event.preventDefault(); navigateToMeeting(null); }}>
+          <span className="brand-mark">w</span><span>when3meet</span>
+        </a>
+        <div className="account-bar">
+          <span className="account-email">{user.email}</span>
+          <button className="text-button" onClick={() => void signOut()} type="button">Sign out</button>
+        </div>
+      </header>
+      <main className="main-content">
+        {error && <p className="message message--error" role="alert">{error}</p>}
+        {notice && <p className="message message--success" role="status">{notice}</p>}
+        {!meetingId ? (
+          <>
+            <section className="welcome-block">
+              <p className="eyebrow">YOUR TEAM, IN SYNC</p>
+              <h1>Find a time that<br className="desktop-break" /> works for everyone.</h1>
+              <p>Start a weekly availability poll, share the link, and let the overlap find you.</p>
+            </section>
+            <section className="dashboard-grid">
+              <div className="create-card">
+                <span className="card-icon" aria-hidden="true">✳</span>
+                <h2>Plan something new</h2>
+                <p>Choose a name for your weekly team meeting. Your invite link is ready in a moment.</p>
+                <form className="create-form" onSubmit={(event) => void handleCreateMeeting(event)}>
+                  <label htmlFor="meeting-title">Meeting name</label>
+                  <input id="meeting-title" placeholder="e.g. Product team sync" required value={title} onChange={(event) => setTitle(event.target.value)} />
+                  <button className="button button--primary" disabled={busy} type="submit">Create a meeting <span aria-hidden="true">→</span></button>
+                </form>
               </div>
-            ))}
-            <div className="late-night-grid__time">11:00 PM</div>
-            <div className="late-night-grid__time late-night-grid__time--second">12:00 AM</div>
-          </div>
-        </section>
-      </div>
-    </main>
-  </div>
-);
+              <div className="dashboard-side">
+                {dashboard.savedSlots.length > 0 && (
+                  <section className="saved-card">
+                    <span className="eyebrow">SAVED JUST FOR YOU</span>
+                    <h2>Your usual week</h2>
+                    <p>{dashboard.savedSlots.length} available {dashboard.savedSlots.length === 1 ? 'time' : 'times'} saved from your last schedule.</p>
+                    <span className="saved-pill"><span aria-hidden="true">✓</span> Ready to reuse</span>
+                  </section>
+                )}
+                <section className="meetings-card">
+                  <div className="section-heading"><div><span className="eyebrow">PICK UP WHERE YOU LEFT OFF</span><h2>Your meetings</h2></div><span className="count-badge">{Object.keys(dashboard.meetings).length}</span></div>
+                  {Object.entries(dashboard.meetings).length ? (
+                    <div className="meeting-list">
+                      {Object.entries(dashboard.meetings).map(([id, savedMeeting]) => (
+                        <button className="meeting-row" key={id} onClick={() => navigateToMeeting(id)} type="button">
+                          <span className="meeting-row__icon" aria-hidden="true">↗</span>
+                          <span className="meeting-row__title">{savedMeeting.title}</span>
+                          <span className="meeting-row__arrow" aria-hidden="true">→</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : <p className="empty-state">Your created meetings will show up here.</p>}
+                </section>
+              </div>
+            </section>
+          </>
+        ) : !meeting ? (
+          <section className="empty-meeting">
+            <button className="text-button" onClick={() => navigateToMeeting(null)} type="button">← Back to your meetings</button>
+            <h1>Finding your meeting…</h1>
+            <p>If this invite is no longer available, ask the organizer for a new link.</p>
+          </section>
+        ) : (
+          <section className="meeting-page">
+            <button className="text-button back-button" onClick={() => navigateToMeeting(null)} type="button">← Your meetings</button>
+            <div className="meeting-heading">
+              <div>
+                <p className="eyebrow">WEEKLY AVAILABILITY</p>
+                <h1>{meeting.title}</h1>
+                <p className="meeting-subtitle">Tap or drag across the times that work for you.</p>
+              </div>
+              <button className="button button--share" onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(window.location.href);
+                  setNotice('Meeting link copied to clipboard.');
+                } catch {
+                  setError('Could not copy the link. You can copy it from your browser address bar.');
+                }
+              }} type="button"><span aria-hidden="true">↗</span> Copy invite link</button>
+            </div>
+            <div className="meeting-workspace">
+              <section className="availability-card">
+                <div className="availability-toolbar">
+                  <div><h2>When are you free?</h2><p>Times shown in your local timezone</p></div>
+                  <span className="timezone-label"><span aria-hidden="true">◷</span> {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
+                </div>
+                {dashboard.savedSlots.length > 0 && (
+                  <button className="reuse-button" onClick={() => { setSelectedSlots(dashboard.savedSlots); setNotice('Your saved weekly schedule is applied. Save availability to share it.'); }} type="button">
+                    <span aria-hidden="true">↻</span> Use my saved schedule
+                  </button>
+                )}
+                <div className="schedule-wrap">
+                  <div className="schedule-grid" role="grid" aria-label="Weekly availability. Select the hours that work for you.">
+                    <div className="schedule-row schedule-row--head" role="row">
+                      <div className="schedule-time-heading" role="columnheader">TIME</div>
+                      {days.map((day) => <div className="schedule-day" key={day} role="columnheader">{day.slice(0, 3)}<span>{day.slice(3)}</span></div>)}
+                    </div>
+                    {hours.map((hour) => (
+                      <div className="schedule-row" key={hour} role="row">
+                        <div className="schedule-time" role="rowheader">{formatHour(hour)}</div>
+                        {days.map((day, dayIndex) => {
+                          const slot = `${dayIndex}-${hour}`;
+                          const count = Object.values(meeting.responses).filter((response) => slot in response.slots).length;
+                          const isSelected = selectedSlots.includes(slot);
+                          const isBest = count === Object.keys(meeting.responses).length && count > 0;
+                          return (
+                            <button
+                              aria-label={`${day}, ${formatHour(hour)}${isSelected ? ', selected by you' : ''}, ${count} available`}
+                              aria-pressed={isSelected}
+                              className={`schedule-cell${isSelected ? ' schedule-cell--selected' : ''}${isBest ? ' schedule-cell--best' : ''}`}
+                              key={slot}
+                              onPointerDown={(event) => handleSlotPointerDown(event, slot)}
+                              onPointerEnter={() => handleSlotPointerEnter(slot)}
+                              onClick={(event) => { if (event.detail === 0) toggleSlot(slot); }}
+                              role="gridcell"
+                              type="button"
+                            >
+                              <span className="cell-count">{count > 0 ? count : ''}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid-legend"><span><i className="legend-dot legend-dot--you" />Your availability</span><span><i className="legend-dot legend-dot--group" />Group overlap</span></div>
+                <div className="save-row">
+                  <label className="name-field" htmlFor="participant-name"><span>Your name</span><input id="participant-name" autoComplete="name" placeholder="How should we call you?" required value={name} onChange={(event) => setName(event.target.value)} /></label>
+                  <button className="button button--primary" disabled={busy || selectedSlots.length === 0} onClick={() => void handleSaveAvailability()} type="button">
+                    {busy ? 'Saving…' : 'Save my availability'} <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <p className="save-hint">Your latest schedule is saved privately to your account for next time.</p>
+              </section>
+              <aside className="participants-card">
+                <span className="eyebrow">THE GROUP</span>
+                <h2>Finding the overlap</h2>
+                <p className="participant-count">{Object.keys(meeting.responses).length} {Object.keys(meeting.responses).length === 1 ? 'person' : 'people'} responded</p>
+                <div className="participant-list">
+                  {Object.entries(meeting.responses).map(([uid, response], index) => (
+                    <div className="participant" key={uid}><span className={`avatar avatar--${index % 4}`}>{response.name.trim().charAt(0).toUpperCase()}</span><span>{response.name}{uid === user.uid && <small>You</small>}</span><span className="participant-check" aria-label="Responded">✓</span></div>
+                  ))}
+                  {!Object.keys(meeting.responses).length && <p className="empty-state">You could be the first to share when you&apos;re free.</p>}
+                </div>
+                <div className="overlap-note"><span aria-hidden="true">✳</span><p>Green cells show a time that works for <strong>everyone who&apos;s responded.</strong></p></div>
+              </aside>
+            </div>
+          </section>
+        )}
+      </main>
+      <footer className="site-footer"><span>when3meet</span><span>Good plans happen when everyone can make it.</span></footer>
+    </div>
+  );
+};
 
 export default App;

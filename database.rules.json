@@ -1,0 +1,21 @@
+{
+  "rules": {
+    "meetings": {
+      ".read": "auth != null",
+      "$meetingId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('createdBy').val() === auth.uid) || data.child('createdBy').val() === auth.uid)",
+        "responses": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('meetings').child($meetingId).exists()"
+          }
+        }
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    }
+  }
+}
