@@ -6,6 +6,7 @@ import {
   listenToMeeting,
   listenToUserDashboard,
   saveAvailability,
+  saveUsualSchedule,
   type Meeting,
   type UserDashboard,
 } from './services/meetingService';
@@ -30,17 +31,20 @@ const App = () => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [dashboard, setDashboard] = useState<UserDashboard>({ meetings: {}, savedSlots: [] });
+  const [usualSlots, setUsualSlots] = useState<string[]>([]);
   const [meetingId, setMeetingId] = useState(
     () => new URLSearchParams(window.location.search).get('meeting'),
   );
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
+  const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [title, setTitle] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
-  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawMode, setDrawMode] = useState<boolean | null>(null);
+  const [usualDrawMode, setUsualDrawMode] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -50,7 +54,9 @@ const App = () => {
     setAuthReady(true);
     setMeeting(null);
     setDashboard({ meetings: {}, savedSlots: [] });
+    setUsualSlots([]);
     setSelectedSlots([]);
+    setHoveredSlot(null);
     setName('');
   }), []);
 
@@ -58,6 +64,7 @@ const App = () => {
     const handlePopState = () => {
       setMeeting(null);
       setSelectedSlots([]);
+      setHoveredSlot(null);
       setMeetingId(new URLSearchParams(window.location.search).get('meeting'));
     };
     window.addEventListener('popstate', handlePopState);
@@ -71,6 +78,7 @@ const App = () => {
     const stopDashboard = listenToUserDashboard(user.uid, (nextDashboard) => {
       savedSlots = nextDashboard.savedSlots;
       setDashboard(nextDashboard);
+      setUsualSlots(nextDashboard.savedSlots);
       if (activeMeeting && !activeMeeting.responses[user.uid]) {
         setSelectedSlots(nextDashboard.savedSlots);
       }
@@ -101,6 +109,7 @@ const App = () => {
     window.history.pushState({}, '', url);
     setMeeting(null);
     setSelectedSlots([]);
+    setHoveredSlot(null);
     setMeetingId(id);
     setError('');
     setNotice('');
@@ -144,13 +153,56 @@ const App = () => {
 
   const handleSlotPointerDown = (event: PointerEvent<HTMLButtonElement>, slot: string) => {
     event.preventDefault();
-    setIsDrawing(true);
-    toggleSlot(slot);
+    const shouldSelect = !selectedSlots.includes(slot);
+    setDrawMode(shouldSelect);
+    setSelectedSlots((current) => shouldSelect
+      ? current.includes(slot) ? current : [...current, slot]
+      : current.filter((value) => value !== slot));
   };
 
   const handleSlotPointerEnter = (slot: string) => {
-    if (!isDrawing || selectedSlots.includes(slot)) return;
-    setSelectedSlots((current) => [...current, slot]);
+    if (drawMode === null) return;
+    setSelectedSlots((current) => drawMode
+      ? current.includes(slot) ? current : [...current, slot]
+      : current.filter((value) => value !== slot));
+  };
+
+  const handleUsualSlotPointerDown = (event: PointerEvent<HTMLButtonElement>, slot: string) => {
+    event.preventDefault();
+    const shouldSelect = !usualSlots.includes(slot);
+    setUsualDrawMode(shouldSelect);
+    setUsualSlots((current) => shouldSelect
+      ? current.includes(slot) ? current : [...current, slot]
+      : current.filter((value) => value !== slot));
+  };
+
+  const handleUsualSlotPointerEnter = (slot: string) => {
+    if (usualDrawMode === null) return;
+    setUsualSlots((current) => usualDrawMode
+      ? current.includes(slot) ? current : [...current, slot]
+      : current.filter((value) => value !== slot));
+  };
+
+  const toggleUsualSlot = (slot: string) => {
+    setUsualSlots((current) => current.includes(slot)
+      ? current.filter((value) => value !== slot)
+      : [...current, slot]);
+  };
+
+  const handleSaveUsualSchedule = async () => {
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await saveUsualSchedule(user, usualSlots);
+      setNotice('Your usual schedule is saved. Existing meeting responses are unchanged; apply and save it separately in each meeting you want to update.');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save your usual schedule.');
+    } finally {
+      setBusy(false);
+      setUsualDrawMode(null);
+    }
   };
 
   const handleSaveAvailability = async () => {
@@ -162,15 +214,30 @@ const App = () => {
     setError('');
     setNotice('');
     try {
-      await saveAvailability(meeting.id, user, name.trim(), selectedSlots);
+      await saveAvailability(
+        meeting.id,
+        { title: meeting.title, createdAt: meeting.createdAt },
+        user,
+        name.trim(),
+        selectedSlots,
+      );
       setNotice('Availability saved. Your schedule is ready to reuse next time.');
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Unable to save availability.');
     } finally {
       setBusy(false);
-      setIsDrawing(false);
+      setDrawMode(null);
     }
   };
+
+  const hoveredSlotParts = hoveredSlot?.split('-').map(Number);
+  const hoveredResponses = hoveredSlot && meeting ? Object.values(meeting.responses) : [];
+  const hoveredAvailable = hoveredSlot
+    ? hoveredResponses.filter((response) => hoveredSlot in response.slots).map((response) => response.name)
+    : [];
+  const hoveredUnavailable = hoveredSlot
+    ? hoveredResponses.filter((response) => !(hoveredSlot in response.slots)).map((response) => response.name)
+    : [];
 
   if (!authReady) {
     return <main className="loading-screen"><span className="brand-mark">w</span><p>Getting your schedule ready…</p></main>;
@@ -224,7 +291,7 @@ const App = () => {
   }
 
   return (
-    <div className="app-shell" onPointerUp={() => setIsDrawing(false)} onPointerLeave={() => setIsDrawing(false)}>
+    <div className="app-shell" onPointerUp={() => { setDrawMode(null); setUsualDrawMode(null); }} onPointerLeave={() => { setDrawMode(null); setUsualDrawMode(null); }}>
       <header className="topbar">
         <a className="brand" href="/" onClick={(event) => { event.preventDefault(); navigateToMeeting(null); }}>
           <span className="brand-mark">w</span><span>when3meet</span>
@@ -245,6 +312,55 @@ const App = () => {
               <p>Start a weekly availability poll, share the link, and let the overlap find you.</p>
             </section>
             <section className="dashboard-grid">
+              <section className="usual-schedule-card">
+                <div className="usual-schedule-heading">
+                  <div>
+                    <span className="eyebrow">SAVED JUST FOR YOU</span>
+                    <h2>Your usual week</h2>
+                    <p>Select or drag over the hours you’re usually available. You can edit this anytime.</p>
+                  </div>
+                  <span className="usual-schedule-count">{usualSlots.length} {usualSlots.length === 1 ? 'time' : 'times'} selected</span>
+                </div>
+                <div className="schedule-wrap">
+                  <div className="schedule-grid" role="grid" aria-label="Your usual weekly schedule. Select the hours you are usually available.">
+                    <div className="schedule-row schedule-row--head" role="row">
+                      <div className="schedule-time-heading" role="columnheader">TIME</div>
+                      {days.map((day) => <div className="schedule-day" key={day} role="columnheader">{day.slice(0, 3)}<span>{day.slice(3)}</span></div>)}
+                    </div>
+                    {hours.map((hour) => (
+                      <div className="schedule-row" key={hour} role="row">
+                        <div className="schedule-time" role="rowheader">{formatHour(hour)}</div>
+                        {days.map((day, dayIndex) => {
+                          const slot = `${dayIndex}-${hour}`;
+                          const isSelected = usualSlots.includes(slot);
+                          return (
+                            <button
+                              aria-label={`${day}, ${formatHour(hour)}${isSelected ? ', selected in your usual schedule' : ''}`}
+                              aria-pressed={isSelected}
+                              className={`schedule-cell${isSelected ? ' schedule-cell--selected' : ''}`}
+                              key={slot}
+                              onPointerDown={(event) => handleUsualSlotPointerDown(event, slot)}
+                              onPointerEnter={() => handleUsualSlotPointerEnter(slot)}
+                              onClick={(event) => { if (event.detail === 0) toggleUsualSlot(slot); }}
+                              role="gridcell"
+                              type="button"
+                            />
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <p className="usual-schedule-warning" role="note">
+                  Updating your usual schedule does not change existing meeting responses. To update a meeting, open it, choose “Use my saved schedule,” then save your availability.
+                </p>
+                <div className="usual-schedule-actions">
+                  <p>Changes to this schedule aren’t saved until you choose Save.</p>
+                  <button className="button button--primary" disabled={busy} onClick={() => void handleSaveUsualSchedule()} type="button">
+                    {busy ? 'Saving…' : 'Save usual schedule'} <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+              </section>
               <div className="create-card">
                 <span className="card-icon" aria-hidden="true">✳</span>
                 <h2>Plan something new</h2>
@@ -256,14 +372,6 @@ const App = () => {
                 </form>
               </div>
               <div className="dashboard-side">
-                {dashboard.savedSlots.length > 0 && (
-                  <section className="saved-card">
-                    <span className="eyebrow">SAVED JUST FOR YOU</span>
-                    <h2>Your usual week</h2>
-                    <p>{dashboard.savedSlots.length} available {dashboard.savedSlots.length === 1 ? 'time' : 'times'} saved from your last schedule.</p>
-                    <span className="saved-pill"><span aria-hidden="true">✓</span> Ready to reuse</span>
-                  </section>
-                )}
                 <section className="meetings-card">
                   <div className="section-heading"><div><span className="eyebrow">PICK UP WHERE YOU LEFT OFF</span><h2>Your meetings</h2></div><span className="count-badge">{Object.keys(dashboard.meetings).length}</span></div>
                   {Object.entries(dashboard.meetings).length ? (
@@ -316,6 +424,7 @@ const App = () => {
                     <span aria-hidden="true">↻</span> Use my saved schedule
                   </button>
                 )}
+                <div className="schedule-interaction" onPointerLeave={() => setHoveredSlot(null)}>
                 <div className="schedule-wrap">
                   <div className="schedule-grid" role="grid" aria-label="Weekly availability. Select the hours that work for you.">
                     <div className="schedule-row schedule-row--head" role="row">
@@ -329,15 +438,20 @@ const App = () => {
                           const slot = `${dayIndex}-${hour}`;
                           const count = Object.values(meeting.responses).filter((response) => slot in response.slots).length;
                           const isSelected = selectedSlots.includes(slot);
-                          const isBest = count === Object.keys(meeting.responses).length && count > 0;
+                          const responseCount = Object.keys(meeting.responses).length;
+                          const overlapLevel = responseCount > 0 ? Math.ceil((count / responseCount) * 10) : 0;
                           return (
                             <button
                               aria-label={`${day}, ${formatHour(hour)}${isSelected ? ', selected by you' : ''}, ${count} available`}
                               aria-pressed={isSelected}
-                              className={`schedule-cell${isSelected ? ' schedule-cell--selected' : ''}${isBest ? ' schedule-cell--best' : ''}`}
+                              className={`schedule-cell${isSelected ? ' schedule-cell--selected' : ''}${overlapLevel > 0 ? ` schedule-cell--overlap-${overlapLevel}` : ''}`}
                               key={slot}
                               onPointerDown={(event) => handleSlotPointerDown(event, slot)}
-                              onPointerEnter={() => handleSlotPointerEnter(slot)}
+                              onPointerEnter={() => {
+                                setHoveredSlot(slot);
+                                handleSlotPointerEnter(slot);
+                              }}
+                              onFocus={() => setHoveredSlot(slot)}
                               onClick={(event) => { if (event.detail === 0) toggleSlot(slot); }}
                               role="gridcell"
                               type="button"
@@ -350,7 +464,32 @@ const App = () => {
                     ))}
                   </div>
                 </div>
-                <div className="grid-legend"><span><i className="legend-dot legend-dot--you" />Your availability</span><span><i className="legend-dot legend-dot--group" />Group overlap</span></div>
+                {hoveredSlot && hoveredSlotParts && (
+                  <div className="availability-detail" role="status">
+                    <div className="availability-detail-heading">
+                      <strong>{days[hoveredSlotParts[0]]}, {formatHour(hoveredSlotParts[1])}</strong>
+                      <span>{hoveredAvailable.length} of {hoveredResponses.length} responded available</span>
+                    </div>
+                    {hoveredResponses.length ? (
+                      <div className="availability-detail-groups">
+                        <div>
+                          <h3>Available ({hoveredAvailable.length})</h3>
+                          {hoveredAvailable.length
+                            ? <p>{hoveredAvailable.join(', ')}</p>
+                            : <p className="availability-detail-empty">No respondents selected this time.</p>}
+                        </div>
+                        <div>
+                          <h3>Not available ({hoveredUnavailable.length})</h3>
+                          {hoveredUnavailable.length
+                            ? <p>{hoveredUnavailable.join(', ')}</p>
+                            : <p className="availability-detail-empty">Everyone who responded is available.</p>}
+                        </div>
+                      </div>
+                    ) : <p className="availability-detail-empty">No one has responded yet.</p>}
+                  </div>
+                )}
+                </div>
+                <div className="grid-legend"><span><i className="legend-dot legend-dot--you" />Your selection</span><span><i className="legend-dot legend-dot--group" />Darker green means more people available</span></div>
                 <div className="save-row">
                   <label className="name-field" htmlFor="participant-name"><span>Your name</span><input id="participant-name" autoComplete="name" placeholder="How should we call you?" required value={name} onChange={(event) => setName(event.target.value)} /></label>
                   <button className="button button--primary" disabled={busy || selectedSlots.length === 0} onClick={() => void handleSaveAvailability()} type="button">

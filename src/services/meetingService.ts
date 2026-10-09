@@ -81,6 +81,7 @@ export const listenToUserDashboard = (
 
 export const saveAvailability = async (
   meetingId: string,
+  meetingSummary: MeetingSummary,
   user: AppUser,
   name: string,
   slots: string[],
@@ -94,7 +95,16 @@ export const saveAvailability = async (
       updatedAt: savedAt,
     } satisfies MeetingResponse,
     [`users/${user.uid}/email`]: user.email,
+    [`users/${user.uid}/meetings/${meetingId}`]: meetingSummary,
     [`users/${user.uid}/savedSlots`]: slots,
     [`users/${user.uid}/savedAt`]: savedAt,
+  });
+};
+
+export const saveUsualSchedule = async (user: AppUser, slots: string[]): Promise<void> => {
+  await update(ref(database), {
+    [`users/${user.uid}/email`]: user.email,
+    [`users/${user.uid}/savedSlots`]: slots,
+    [`users/${user.uid}/savedAt`]: Date.now(),
   });
 };
